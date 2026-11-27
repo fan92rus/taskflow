@@ -13,6 +13,8 @@ import { resolve as resolvePath } from "node:path";
 import {
 	LOOP_DEFAULT_MAX_ITERATIONS,
 	LOOP_HARD_MAX_ITERATIONS,
+	REPEAT_DEFAULT_MAX_ITERATIONS,
+	REPEAT_HARD_MAX_ITERATIONS,
 	MAX_DYNAMIC_NESTING,
 	TOURNAMENT_DEFAULT_VARIANTS,
 	TOURNAMENT_HARD_MAX_VARIANTS,
@@ -40,6 +42,7 @@ type BodyResult = {
 	approval?: { decision: "approve" | "reject" | "edit"; note?: string; auto?: boolean };
 	warnings?: string[];
 	promptStats?: StepResult["promptStats"];
+	repeat?: { iterations: number; stop: "until" | "max" | "failed" | "aborted" | "guard-error" };
 };
 
 function baseEvent(
@@ -822,6 +825,73 @@ export async function executeFlowBody(phase: Phase, ctx: StepContext): Promise<B
 	const nextStack = hasDef
 		? [...stack, ctx.state.flowName, recursionKey]
 		: [...stack, ctx.state.flowName];
+
+	const repeatCfg = (phase as { repeat?: { until?: string; max?: number; carry?: string[] } }).repeat;
+	if (repeatCfg) {
+		const max = Math.max(1, Math.min(REPEAT_HARD_MAX_ITERATIONS, Math.floor(repeatCfg.max ?? REPEAT_DEFAULT_MAX_ITERATIONS)));
+		const midEvents: Event[] = [];
+		const usages: UsageStats[] = [];
+		const warnings: string[] = [];
+		let args: Record<string, unknown> = { ...provided };
+		let output = "";
+		let stop: "until" | "max" | "failed" | "guard-error" = "max";
+		let error: string | undefined;
+		let iterations = 0;
+		for (let i = 1; i <= max; i++) {
+			iterations = i;
+			const nested = await ctx.deps.runNested({
+				def: subDef,
+				args,
+				stack: [...nextStack, `repeat:${ctx.state.flowName}:${phase.id}`],
+				dynamic: hasDef,
+				flowSourceFile: subFlowSourceFile,
+				flowSourceDirIdentity: subFlowSourceDirIdentity,
+			});
+			midEvents.push(...nested.events);
+			usages.push(nested.usage);
+			if (!nested.ok) {
+				stop = "failed";
+				error = nested.finalOutput || `repeat iteration ${i} failed`;
+				break;
+			}
+			output = nested.finalOutput ?? "";
+			const parsed = safeParse(output);
+			const untilCtx = interpCtx(ctx, {
+				steps: { ...ctx.steps, [phase.id]: { output, json: parsed } },
+			});
+			const { value: done, error: condErr } = tryEvaluateCondition(repeatCfg.until ?? "", untilCtx);
+			if (condErr) {
+				warnings.push(`flow.repeat 'until' could not be evaluated (stopped after iteration ${i}): ${condErr}`);
+				stop = "guard-error";
+				error = `repeat 'until' guard error: ${condErr}`;
+				break;
+			}
+			if (done) {
+				stop = "until";
+				break;
+			}
+			for (const key of repeatCfg.carry ?? []) {
+				if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && key in (parsed as Record<string, unknown>)) {
+					args[key] = (parsed as Record<string, unknown>)[key];
+				} else {
+					warnings.push(`flow.repeat carry '${key}' missing from iteration ${i} JSON output; keeping previous value`);
+				}
+			}
+		}
+		if (stop === "max" && iterations === max) {
+			error = `flow.repeat '${phase.id}' did not satisfy 'until' after ${max} iterations`;
+		}
+		return {
+			midEvents,
+			output,
+			status: stop === "until" ? "done" : "failed",
+			error,
+			usage: usages.length ? aggregateUsage(usages) : emptyUsage(),
+			warnings: warnings.length ? warnings : undefined,
+			repeat: { iterations, stop },
+		};
+	}
+
 	const nested = await ctx.deps.runNested({
 		def: subDef,
 		args: provided,

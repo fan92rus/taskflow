@@ -60,6 +60,12 @@ export const AGENT_RUNNING_PHASE_TYPES = [
 export const LOOP_DEFAULT_MAX_ITERATIONS = 10;
 export const LOOP_HARD_MAX_ITERATIONS = 100;
 
+/** Repeat bounds for `flow` phases. A repeat re-runs a whole saved/inline
+ * sub-flow, carrying named JSON output fields forward as args. Hard cap keeps
+ * a bad condition from turning a campaign driver into an infinite loop. */
+export const REPEAT_DEFAULT_MAX_ITERATIONS = 10;
+export const REPEAT_HARD_MAX_ITERATIONS = 20;
+
 /** Max depth of runtime `flow { def }` sub-flow nesting (runaway guard for
  *  LLM-generated sub-flows that themselves spawn more sub-flows). The existing
  *  `_stack` recursion check guards saved-flow cycles; this bounds inline depth. */
@@ -391,6 +397,28 @@ const PhaseSchema = Type.Object(
 					"[loop] When true, each iteration after the first receives a {reflexion} placeholder (auto-appended if the task lacks it) carrying a structured failure summary of the prior iteration — output snippet, expect-contract diagnostics, error, or the unmet 'until' condition. Body failures become feedback for the next iteration instead of terminating the loop (timeout/abort still hard-stop; if maxIterations exhausts with the last iteration failed, the phase fails). Default false — existing loops are unchanged.",
 				default: false,
 			}),
+		),
+
+		// flow-repeat: re-run an entire sub-flow, not a single agent body.
+		repeat: Type.Optional(
+			Type.Object({
+				until: Type.String({
+					description:
+						"[flow] Stop condition evaluated on the last iteration output, exposed as {steps.<thisId>.output}/.json. The repeated flow stops on the first truthy value.",
+				}),
+				max: Type.Optional(
+					Type.Number({
+						description: `[flow] Hard cap on sub-flow iterations (default ${REPEAT_DEFAULT_MAX_ITERATIONS}, max ${REPEAT_HARD_MAX_ITERATIONS}). Exhausting the cap without a truthy 'until' fails the phase.`,
+						default: REPEAT_DEFAULT_MAX_ITERATIONS,
+					}),
+				),
+				carry: Type.Optional(
+					Type.Array(Type.String(), {
+						description:
+							"[flow] Arg names to carry from the last iteration's JSON output into the next iteration's `with` args. Missing keys keep their previous value and emit a warning.",
+					}),
+				),
+			}, { additionalProperties: false }),
 		),
 
 		// tournament: N variants compete, a judge picks the best (or aggregates)
@@ -1496,6 +1524,35 @@ export function validateTaskflow(def: unknown, opts: ValidationOptions = {}): Va
 			} else if (hasUse && hasDef) {
 				errors.push(`Phase '${p.id}' (flow): 'use' and 'def' are mutually exclusive — provide exactly one`);
 			}
+			const repeat = (p as { repeat?: { until?: unknown; max?: unknown; carry?: unknown } }).repeat;
+			if (repeat !== undefined) {
+				if (!repeat || typeof repeat !== "object" || Array.isArray(repeat)) {
+					errors.push(`Phase '${p.id}' (flow): 'repeat' must be an object`);
+				} else {
+					if (typeof repeat.until !== "string" || repeat.until.length === 0) {
+						errors.push(`Phase '${p.id}' (flow.repeat) requires a non-empty 'until' expression`);
+					}
+					if (repeat.max !== undefined) {
+						if (typeof repeat.max !== "number" || !Number.isFinite(repeat.max) || repeat.max < 1) {
+							errors.push(`Phase '${p.id}' (flow.repeat): max must be a number >= 1`);
+						} else if (repeat.max > REPEAT_HARD_MAX_ITERATIONS) {
+							errors.push(`Phase '${p.id}' (flow.repeat): max must be <= ${REPEAT_HARD_MAX_ITERATIONS}`);
+						}
+					}
+					if (repeat.carry !== undefined && (!Array.isArray(repeat.carry) || repeat.carry.some((k) => typeof k !== "string" || k.length === 0))) {
+						errors.push(`Phase '${p.id}' (flow.repeat): carry must be an array of non-empty arg names`);
+					}
+					if (p.output !== "json") {
+						warnings.push(`Phase '${p.id}' (flow.repeat): 'until'/'carry' read JSON output — set output:"json" on this phase`);
+					}
+					if (hasUse && p.use === flow.name) {
+						errors.push(`Phase '${p.id}' (flow.repeat): cannot repeat the current flow '${flow.name}' — put the repeat in a wrapper flow`);
+					}
+				}
+			}
+		}
+		if (type !== "flow" && (p as { repeat?: unknown }).repeat !== undefined) {
+			warnings.push(`Phase '${p.id}' (${type}): 'repeat' is only meaningful on flow phases and is ignored here`);
 		}
 		if (type === "loop") {
 			if (!p.task && !hasTaskFile) errors.push(`Phase '${p.id}' (loop) requires 'task' (the iteration body)`);

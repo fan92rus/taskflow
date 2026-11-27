@@ -68,6 +68,46 @@ next plan from the previous round's result: the declarative equivalent of
 `for (...) { read result; decide next }`. See `examples/dynamic-plan-execute.json`
 and `examples/iterative-replan.json`.
 
+**Repeating a whole flow (`flow.repeat`).** A `loop` repeats one agent body; it
+cannot host script gates, reviewers or a nested DAG. A `flow` phase with
+`repeat` instead re-runs an ENTIRE saved (or inline) sub-flow, so every
+iteration keeps its own deterministic gates, independent reviewers and trace.
+The parent Pi/TUI stays inside one taskflow invocation — this is the
+declarative campaign driver.
+
+```jsonc
+{
+  "name": "campaign-driver",
+  "args": { "cursor": { "default": "0" } },
+  "phases": [
+    {
+      "id": "sprint",
+      "type": "flow",
+      "use": "agile-campaign",
+      "with": { "cursor": "{args.cursor}" },
+      "output": "json",
+      "final": true,
+      "repeat": {
+        "until": "{steps.sprint.json.done} == true",
+        "max": 10,
+        "carry": ["cursor"]
+      }
+    }
+  ]
+}
+```
+
+- `until` is evaluated on the last iteration's output, exposed as
+  `{steps.<thisId>.output}` / `{steps.<thisId>.json}`.
+- `carry` copies named fields from that JSON into the next iteration's args.
+  Missing fields keep their previous value and emit a warning.
+- `max` is a hard cap (default 10, max 20). Exhausting it without a truthy
+  `until` FAILS the phase — a campaign never silently ends half-done.
+- Put `repeat` in a **wrapper** flow. Repeating the current flow is rejected by
+  validation to prevent a self-referential driver.
+- Session phases are still sessionless for reviewers and stateful only for
+  work/fix; `repeat` does not change those contracts.
+
 ---
 
 ## Workspace isolation (`cwd` keywords)

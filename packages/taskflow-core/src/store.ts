@@ -144,6 +144,9 @@ export interface PhaseState {
 	 *  reflexion loop continues past failures and only the terminal one would
 	 *  otherwise survive in `error`. Bounded (most-recent kept). */
 	loop?: { iterations: number; stop: "until" | "converged" | "maxIterations" | "failed" | "aborted"; reflexion?: string; failures?: Array<{ iteration: number; error: string }> };
+	/** Flow-repeat accounting (flow phases with `repeat` only). `until` means the
+	 * stop condition was satisfied; `max` means the hard cap was exhausted. */
+	repeat?: { iterations: number; stop: "until" | "max" | "failed" | "aborted" | "guard-error" };
 	/** Tournament outcome (tournament phases only). */
 	tournament?: { variants: number; winner: number; mode: "best" | "aggregate"; reason?: string };
 	/** Set when a `flow { def }` inline sub-flow definition could not be resolved,

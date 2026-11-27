@@ -37,7 +37,7 @@ const noRunnerInjected: RunTaskFn = async (_cwd, _agents, agentName, task) => ({
 });
 export { PHASE_TIMEOUT_ABORT_GRACE_MS } from "./runner-core.ts";
 import { aggregateUsage, emptyUsage, type UsageStats } from "./usage.ts";
-import { type Budget, type CacheScope, asArray, dependenciesOf, LOOP_DEFAULT_MAX_ITERATIONS, LOOP_HARD_MAX_ITERATIONS, MAX_DYNAMIC_MAP_ITEMS, MAX_DYNAMIC_NESTING, MAX_DYNAMIC_PHASES, parseTtlMs, type Phase, resolveArgs, type Taskflow, topoLayers, TOURNAMENT_DEFAULT_VARIANTS, TOURNAMENT_HARD_MAX_VARIANTS, type TournamentMode, validateInvocationArgs, validateTaskflow } from "./schema.ts";
+import { type Budget, type CacheScope, asArray, dependenciesOf, LOOP_DEFAULT_MAX_ITERATIONS, LOOP_HARD_MAX_ITERATIONS, REPEAT_DEFAULT_MAX_ITERATIONS, REPEAT_HARD_MAX_ITERATIONS, MAX_DYNAMIC_MAP_ITEMS, MAX_DYNAMIC_NESTING, MAX_DYNAMIC_PHASES, parseTtlMs, type Phase, resolveArgs, type Taskflow, topoLayers, TOURNAMENT_DEFAULT_VARIANTS, TOURNAMENT_HARD_MAX_VARIANTS, type TournamentMode, validateInvocationArgs, validateTaskflow } from "./schema.ts";
 import { verifyTaskflow, pluginVerifierErrors, formatPluginIssueMessages, type TaskflowVerifier } from "./verify.ts";
 import { combineScores, combineWithJudge, evaluatePureScorer, formatScorerReport, parseJudgeOutput, SCORE_DEFAULT_THRESHOLD, type ScoreConfig, scoreResultJSON, type ScorerResult, scorerShapeErrors } from "./scorers.ts";
 import { parseGateVerdict, overBudget as overBudgetCheck, parseTournamentWinner, type BudgetCheckInput } from "./deterministic.ts";
@@ -1611,6 +1611,14 @@ async function executePhaseInner(
 				reads: readRefsToReads(readRefs, state),
 			};
 		}
+	}
+
+	// flow.repeat is a campaign driver: re-run a WHOLE sub-flow (all of its
+	// deterministic gates and reviewers), carrying named JSON output fields
+	// forward. It is intentionally checked after `when` so a skipped phase never
+	// starts a repeat, and before cache so a cached result cannot skip the loop.
+	if (type === "flow" && phase.repeat !== undefined) {
+		return await executeRepeatedFlowPhase(phase, state, deps, previousOutput, readRefs);
 	}
 
 	// `context` keeps its historical invocation-root meaning. Phase cwd may be a
@@ -4427,6 +4435,143 @@ export async function recomputeTaskflow(
 			decisions,
 		},
 		state: newState,
+	};
+}
+
+/**
+ * `flow.repeat`: run a whole sub-flow more than once, carrying named JSON
+ * output fields forward as args. This is the declarative campaign driver —
+ * the parent Pi/TUI stays in ONE taskflow invocation while each iteration is
+ * still a normal nested run with its own gates, reviewers and trace.
+ *
+ * Implemented as a synthetic one-phase wrapper so all existing flow semantics
+ * (saved-flow loading, verifier preflight, budget clamping, event kernel parity)
+ * stay in one place. The repeated flow must NOT be the current flow — schema
+ * validation rejects that to avoid a self-referential driver.
+ */
+async function executeRepeatedFlowPhase(
+	phase: Phase,
+	state: RunState,
+	deps: RuntimeDeps,
+	previousOutput: string | undefined,
+	readRefs: string[],
+): Promise<PhaseState> {
+	const repeat = phase.repeat!;
+	const max = Math.max(1, Math.min(REPEAT_HARD_MAX_ITERATIONS, Math.floor(repeat.max ?? REPEAT_DEFAULT_MAX_ITERATIONS)));
+	const { repeat: _repeatConfig, ...phaseWithoutRepeat } = phase;
+	const wrapperDef: Taskflow = {
+		name: `${state.flowName}/${phase.id}-repeat`,
+		phases: [{ ...phaseWithoutRepeat, final: true } as Phase],
+		budget: state.def.budget,
+		concurrency: state.def.concurrency,
+		strictInterpolation: state.def.strictInterpolation,
+	};
+	const { _approvalCheckpointContinuation: _ignoredCheckpoint, ...repeatDeps } = deps;
+
+	const usages: UsageStats[] = [];
+	const warnings: string[] = [];
+	let args: Record<string, unknown> = { ...state.args };
+	let lastOutput = "";
+	let stop: NonNullable<PhaseState["repeat"]>["stop"] = "max";
+	let failure: string | undefined;
+	let iterations = 0;
+
+	for (let i = 1; i <= max; i++) {
+		if (deps.signal?.aborted) {
+			stop = "aborted";
+			failure = "Aborted";
+			break;
+		}
+		iterations = i;
+		const spent = aggregateUsage([
+			...Object.values(state.phases).map((p) => p.usage ?? emptyUsage()),
+			...usages,
+		]);
+		const effectiveDef = clampSubFlowBudget(wrapperDef, state.def.budget, spent);
+		const subState: RunState = {
+			runId: newRunId(`${state.runId}-${phase.id}-r${i}`),
+			flowName: wrapperDef.name,
+			def: effectiveDef,
+			args,
+			status: "running",
+			phases: {},
+			createdAt: Date.now(),
+			updatedAt: Date.now(),
+			cwd: state.cwd,
+			flowSourceFile: state.flowSourceFile,
+			flowSourceDirIdentity: state.flowSourceDirIdentity,
+		};
+		const nested = await executeTaskflow(subState, {
+			...repeatDeps,
+			trace: undefined,
+			persist: undefined,
+			_dynamic: deps._dynamic,
+			_cwdOverride: undefined,
+			_stack: [...(deps._stack ?? []), `repeat:${state.flowName}:${phase.id}`],
+			_ctxDir: deps._ctxDir,
+			onProgress: () => {
+				const live = state.phases[phase.id];
+				if (!live) return;
+				live.usage = aggregateUsage(usages);
+				live.liveText = `↳ repeat ${i}/${max}`;
+				live.subProgress = { done: i - 1, total: max, running: 1, failed: 0 };
+				safeProgress(deps, state);
+			},
+		});
+		usages.push(nested.totalUsage);
+		const live = state.phases[phase.id];
+		if (live) {
+			live.usage = aggregateUsage(usages);
+			live.subProgress = { done: i, total: max, running: 0, failed: nested.ok ? 0 : 1 };
+		}
+
+		if (!nested.ok) {
+			stop = "failed";
+			failure = nested.finalOutput || `repeat iteration ${i} failed`;
+			break;
+		}
+		lastOutput = nested.finalOutput ?? "";
+		const parsed = safeParse(lastOutput);
+		const untilCtx = buildInterpolationContext(state, previousOutput, undefined, (ref) => readRefs.push(ref));
+		untilCtx.steps[phase.id] = { output: lastOutput, json: parsed };
+		const { value: done, error: condErr } = tryEvaluateCondition(repeat.until, untilCtx);
+		if (condErr) {
+			warnings.push(`flow.repeat 'until' could not be evaluated (stopped after iteration ${i}): ${condErr}`);
+			stop = "guard-error";
+			failure = `repeat 'until' guard error: ${condErr}`;
+			break;
+		}
+		if (done) {
+			stop = "until";
+			break;
+		}
+		for (const key of repeat.carry ?? []) {
+			if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && key in (parsed as Record<string, unknown>)) {
+				args[key] = (parsed as Record<string, unknown>)[key];
+			} else {
+				warnings.push(`flow.repeat carry '${key}' missing from iteration ${i} JSON output; keeping previous value`);
+			}
+		}
+		safeEmit(deps, state);
+	}
+
+	if (stop === "max" && iterations === max) {
+		failure = `flow.repeat '${phase.id}' did not satisfy 'until' after ${max} iterations`;
+	}
+	const failed = stop !== "until";
+	return {
+		id: phase.id,
+		status: failed ? "failed" : "done",
+		output: lastOutput || undefined,
+		json: phase.output === "json" && !failed ? safeParse(lastOutput) : undefined,
+		usage: usages.length ? aggregateUsage(usages) : emptyUsage(),
+		error: failure,
+		warnings: warnings.length ? warnings : undefined,
+		inputHash: hashInput(phase.id, "flow-repeat", repeat.until, String(max), JSON.stringify(repeat.carry ?? []), JSON.stringify(state.args)),
+		reads: readRefsToReads(readRefs, state),
+		repeat: { iterations, stop },
+		subProgress: { done: iterations, total: max, running: 0, failed: failed ? 1 : 0 },
+		endedAt: Date.now(),
 	};
 }
 

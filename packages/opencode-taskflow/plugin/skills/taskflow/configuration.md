@@ -100,6 +100,7 @@ Keys of each object in `phases[]`. Some only apply to specific `type`s.
 | `batchSize` | reduce | — | With `reduceStrategy: "tree"`, max inputs per intermediate reducer call (integer ≥ 2). Ignored for one-shot. A phase may start at most 256 tree-reducer calls; increase `batchSize` or split the reduction if validation would exceed the cap. |
 | `def` | expand, flow | — | **Required for expand.** Fragment Taskflow / phases array / `{steps.X.json}`. |
 | `expandMode` | expand | `nested` | `nested` = isolated sub-flow; `graft` = promote children as `<expandId>-<childId>`. |
+| `repeat` | flow | — | Re-run the whole sub-flow: `{ until, max?, carry? }`. `until` reads `{steps.<id>.json}`; `carry` copies named JSON fields into the next iteration's args. `max` defaults to 10, hard cap 20; exhausting it fails the phase. Put it in a wrapper flow — repeating the current flow is rejected. See `advanced.md`. |
 | `maxNodes` | expand | `50` | Cap fragment phase count (1..100). |
 | `run` | script | — | **Required for script.** Shell command: a string (runs in a shell) or an array (direct exec, no shell). A string with an interpolation placeholder is rejected (injection guard). |
 | `input` | script | — | Text piped to the command's stdin; supports interpolation. |

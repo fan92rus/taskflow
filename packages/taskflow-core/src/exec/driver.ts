@@ -467,6 +467,7 @@ export async function runEventKernel(state: RunState, deps: EventKernelDeps): Pr
 				gate: result.gate,
 				approval: result.approval,
 				warnings: result.warnings,
+				...(result.repeat ? { repeat: result.repeat } : {}),
 				...(observedReads.length ? { reads: observedReads } : {}),
 				...(result.promptStats ? { promptStats: result.promptStats } : {}),
 				...(phase.idempotent === false && result.status !== "skipped" ? { sideEffect: true as const } : {}),

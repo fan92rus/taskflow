@@ -127,6 +127,8 @@ export interface StepResult {
 	gate?: { verdict: "pass" | "block"; reason?: string };
 	approval?: { decision: "approve" | "reject" | "edit"; note?: string; auto?: boolean };
 	warnings?: string[];
+	/** Flow-repeat accounting (flow phases with `repeat` only). */
+	repeat?: { iterations: number; stop: "until" | "max" | "failed" | "aborted" | "guard-error" };
 	/** Prompt-size diagnostics for the kernel path (parity with the imperative
 	 *  PhaseState.promptStats). `calls` has one entry per resolved subagent
 	 *  prompt; `reduceInputs` carries aggregate stats for reduce phases. */
@@ -147,6 +149,7 @@ type BodyResult = {
 	gate?: StepResult["gate"];
 	approval?: StepResult["approval"];
 	warnings?: string[];
+	repeat?: StepResult["repeat"];
 	promptStats?: StepResult["promptStats"];
 };
 
@@ -694,6 +697,7 @@ export async function stepPhase(phase: Phase, ctx: StepContext): Promise<StepRes
 		gate: body.gate,
 		approval: body.approval,
 		warnings: body.warnings,
+		repeat: body.repeat,
 		promptStats: body.promptStats,
 	};
 }

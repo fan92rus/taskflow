@@ -51,6 +51,7 @@ const SIDECAR_PHASE_FIELDS = [
 	"maxIterations",
 	"convergence",
 	"reflexion",
+	"repeat",
 	"variants",
 	"judge",
 	"judgeAgent",
