@@ -18,6 +18,7 @@ import {
 	sanitizeErrorMessage,
 	TRANSPORT_ERROR_PLACEHOLDER,
 } from "../src/runner.ts";
+import { cleanupRunSessions, resetTrackedSessions } from "../src/session-cleanup.ts";
 import type { AgentConfig } from "taskflow-core";
 import { emptyUsage, MAX_STDOUT_LINE_BYTES } from "taskflow-core";
 
@@ -997,13 +998,17 @@ test("runAgentTask: session opt-in uses --session-id/--session-dir, default stay
 		assert.equal(off.sessionId, null, "default has no --session-id");
 
 		fs.rmSync(capture, { force: true });
+		resetTrackedSessions();
 		await runAgentTask(dir, agents, "t", "continued", {
+			runId: "runner-session-run",
 			session: { id: "worker-8en", dir: "/tmp/sessions" },
 		});
 		const on = JSON.parse(fs.readFileSync(capture, "utf-8"));
 		assert.equal(on.noSession, false, "session opt-in removes --no-session");
 		assert.equal(on.sessionId, "worker-8en", "--session-id forwarded");
 		assert.equal(on.sessionDir, "/tmp/sessions", "--session-dir forwarded");
+		const tracked = cleanupRunSessions("runner-session-run", { TASKFLOW_DEBUG: "1" });
+		assert.deepEqual(tracked.skippedDebug, ["worker-8en"], "runner registers the session for cleanup");
 	} finally {
 		if (prevBin === undefined) delete process.env.PI_TASKFLOW_PI_BIN;
 		else process.env.PI_TASKFLOW_PI_BIN = prevBin;

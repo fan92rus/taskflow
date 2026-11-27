@@ -9,6 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { trackRunSession } from "./session-cleanup.ts";
 import {
 	newAccumulator,
 	foldEventLine,
@@ -424,6 +425,7 @@ export async function runAgentTask(
 
 	const args: string[] = ["--mode", "json", "-p"];
 	if (opts.session?.id) {
+		trackRunSession(opts.runId, opts.session, opts.cwd ?? defaultCwd);
 		args.push("--session-id", opts.session.id);
 		if (opts.session.dir) args.push("--session-dir", opts.session.dir);
 	} else {

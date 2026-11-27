@@ -6,7 +6,7 @@ All notable changes to taskflow are documented here. This project follows [Keep 
 
 ### Added
 
-- Pi-host phase field `session` (`key` / `id`, `mode`, `dir`) continues one saved Pi session across agent phases via `--session-id` instead of `--no-session`. Session phases are never cross-run cached; reviewers stay independent. Documented in the configuration and advanced skill docs, with a README example.
+- Pi-host phase field `session` (`key` / `id`, `mode`, `dir`) continues one saved Pi session across agent phases via `--session-id` instead of `--no-session`. Session phases are never cross-run cached; reviewers stay independent. Taskflow now deletes the run's session transcripts on terminal completion/failure by default; `TASKFLOW_DEBUG=1` (or `TASKFLOW_KEEP_SESSIONS=1`) retains them. Documented in the configuration and advanced skill docs, with a README example.
 
 ### Chore
 

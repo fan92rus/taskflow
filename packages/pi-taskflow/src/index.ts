@@ -30,6 +30,7 @@ import { Type, type TObject } from "typebox";
 import { type AgentScope, discoverAgents, readSubagentSettings, shouldSyncBuiltinAgentsToProject, syncBuiltinAgentsToProject } from "taskflow-core";
 import { renderRunResult, summarizeRun } from "./render.ts";
 import { createPiSubagentRunner, PI_TASKFLOW_PI_ENTRY_ENV, resolveParentPiCliEntry, runnerModulePath } from "./runner.ts";
+import { cleanupRunSessions } from "./session-cleanup.ts";
 import { RunHistoryComponent, type RunHistoryResult } from "./runs-view.ts";
 import { createApprovalRequester } from "./approval-view.ts";
 import { createWebCommand } from "./web-command.ts";
@@ -611,6 +612,17 @@ async function runFlow(
 		return result;
 	} finally {
 		if (heartbeat) clearInterval(heartbeat);
+		// Session phases are stateful only while the run is alive. On a terminal
+		// outcome remove their Pi transcripts; TASKFLOW_DEBUG=1 keeps them.
+		if (state.status === "completed" || state.status === "failed") {
+			const removed = cleanupRunSessions(state.runId);
+			if (removed.deleted.length) {
+				ctx.ui?.notify?.(`[taskflow] removed ${removed.deleted.length} session artifact(s) for ${state.runId}`, "info");
+			}
+			if (removed.errors.length) {
+				ctx.ui?.notify?.(`[taskflow] session cleanup warnings: ${removed.errors.join("; ")}`, "warning");
+			}
+		}
 		saveRun(state, cleanupConfig); // force-persist terminal state
 		emit(state); // final render reflecting terminal state
 	}

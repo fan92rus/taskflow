@@ -517,12 +517,13 @@ context and only the new instructions are fresh tokens.
 - Sessions are stateful: `session` phases are never cross-run cached (§8).
   If a phase must re-run from scratch, set `mode: "fresh"`.
 
-**Cleanup:** Taskflow does **not** delete Pi session files when a run ends.
-Sessions are written under Pi's session directory (default
-`~/.pi/agent/sessions/<cwd-token>/`, or `session.dir` when set) and persist
-until the user deletes them via Pi's session picker or the filesystem. By
-contrast, the `shareContext` blackboard is per-run and is cleaned up with the
-run.
+**Cleanup:** by default Taskflow deletes every Pi session file tracked by a
+completed or failed run. This includes explicit `session.id` values; only
+sessions actually opened by the run are touched. Set `TASKFLOW_DEBUG=1` (or
+`TASKFLOW_KEEP_SESSIONS=1`) in the host process to retain them for post-mortem
+inspection. Sessions are written under Pi's session directory (default
+`~/.pi/agent/sessions/<cwd-token>/`, or `session.dir` when set). The
+`shareContext` blackboard is per-run and is also cleaned up with the run.
 
 ---
 
@@ -530,6 +531,8 @@ run.
 
 | Variable | Effect |
 |----------|--------|
+| `TASKFLOW_DEBUG=1` | Keep session artifacts after a completed/failed run instead of deleting them. This is the debug flag for post-mortem session inspection. |
+| `TASKFLOW_KEEP_SESSIONS=1` | Narrower alias for keeping session artifacts; same behavior as `TASKFLOW_DEBUG=1`. |
 | `PI_TASKFLOW_PI_BIN` | Override the `pi` binary used to spawn subagents. Used by tests and unusual launch setups (e.g. `PI_TASKFLOW_PI_BIN=pi`). Normally auto-detected. |
 | `PI_TASKFLOW_CODEX_BIN` | Override the `codex` binary used to spawn Codex subagents. |
 | `PI_TASKFLOW_CHILD_ENV_ALLOW` | Comma-separated names of extra task-specific environment variables to pass intentionally to Codex/OpenCode/Grok children. Unlisted application secrets are removed. |

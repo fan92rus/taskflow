@@ -147,11 +147,11 @@ new instructions at the end. Changing the model, tools, cwd, or system prompt
 between phases weakens cache reuse even though the session transcript is still
 continued.
 
-**Cleanup:** unlike the per-run blackboard, Pi session files are **not**
-deleted by Taskflow when the run finishes. They stay in Pi's session directory
-(default `~/.pi/agent/sessions/<cwd-token>/`, or `session.dir`) until deleted
-manually through Pi's session picker or the filesystem. Use a dedicated
-`session.dir` in automated flows if you want one place to prune them.
+**Cleanup:** unlike the per-run blackboard, Pi session files persist on disk
+by default in Pi — Taskflow removes the transcripts it opened once the run
+reaches a terminal state. Set `TASKFLOW_DEBUG=1` (or
+`TASKFLOW_KEEP_SESSIONS=1`) to keep them. A dedicated `session.dir` is still
+useful: it gives manual cleanup and debugging a single predictable folder.
 
 ---
 

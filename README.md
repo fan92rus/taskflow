@@ -181,10 +181,10 @@ fresh and independent.
   "task": "Continue; fix only {steps.review.json.blockers}." }
 ```
 
-Session phases are never cross-run cached, and Taskflow does **not** delete Pi
-session files after a run — set `session.dir` if you want them in a dedicated
-folder you can prune. See `skills-src/taskflow/advanced.md` for the full
-contract.
+Session phases are never cross-run cached. Taskflow deletes the run's Pi
+session transcripts on completion/failure by default; set `TASKFLOW_DEBUG=1`
+(or `TASKFLOW_KEEP_SESSIONS=1`) to keep them for debugging. See
+`skills-src/taskflow/advanced.md` for the full contract.
 
 Useful zero-token operations include:
 
