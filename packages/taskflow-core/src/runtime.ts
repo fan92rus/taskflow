@@ -1738,7 +1738,7 @@ async function executePhaseInner(
 			ctxDir: ctxDir,
 			nodeId: ctxDir ? ctxNodeId : undefined,
 			idleTimeoutMs: effIdleTimeoutMs,
-			session: resolvePhaseSession(phase, state.runId),
+			session: resolvePhaseSession(phase, state.runId, ctx),
 			onTerminalCommit,
 		};
 		const invoke = () => run(

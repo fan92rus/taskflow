@@ -506,9 +506,10 @@ context and only the new instructions are fresh tokens.
 | Field | Meaning |
 |-------|---------|
 | `key` | Session key scoped to the current run: `<runId>-<key>`. A new run does **not** inherit the old transcript. Best default for work → rework loops. |
-| `id` | Explicit session id, honored verbatim. Use only when you deliberately want cross-run continuity. |
+| `id` | Explicit session id, honored verbatim, or an exact `{args.X}` / `{steps.X}` placeholder resolved at execution. Use for deliberate cross-run continuity. |
 | `mode` | `continue` (default) reuses the id; `fresh` appends a unique suffix per phase execution (not per retry attempt). |
-| `dir` | Optional `--session-dir` override for session storage. |
+| `dir` | Optional `--session-dir` override for session storage; also accepts placeholders. |
+| `cleanup` | `run` (default) deletes the transcript when the run ends; `keep` leaves it for a later run (manual rework handoff). |
 
 **Rules of thumb:**
 
@@ -522,13 +523,18 @@ context and only the new instructions are fresh tokens.
 - Sessions are stateful: `session` phases are never cross-run cached (§8).
   If a phase must re-run from scratch, set `mode: "fresh"`.
 
+**Handoff across runs:** a producer phase can keep its transcript with
+`cleanup: "keep"`; a later run's fix phase continues it with
+`session: { "id": "{args.sessionId}" }` and uses the default `cleanup: "run"`
+so exactly that later run removes the artifact.
+
 **Cleanup:** by default Taskflow deletes every Pi session file tracked by a
-completed or failed run. This includes explicit `session.id` values; only
-sessions actually opened by the run are touched. Set `TASKFLOW_DEBUG=1` (or
-`TASKFLOW_KEEP_SESSIONS=1`) in the host process to retain them for post-mortem
-inspection. Sessions are written under Pi's session directory (default
-`~/.pi/agent/sessions/<cwd-token>/`, or `session.dir` when set). The
-`shareContext` blackboard is per-run and is also cleaned up with the run.
+completed or failed run. Phases with `cleanup: "keep"` are excluded. Set
+`TASKFLOW_DEBUG=1` (or `TASKFLOW_KEEP_SESSIONS=1`) in the host process to retain
+all artifacts for post-mortem inspection. Sessions are written under Pi's
+session directory (default `~/.pi/agent/sessions/<cwd-token>/`, or
+`session.dir` when set). The `shareContext` blackboard is per-run and is also
+cleaned up with the run.
 
 ---
 

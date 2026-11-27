@@ -425,7 +425,9 @@ export async function runAgentTask(
 
 	const args: string[] = ["--mode", "json", "-p"];
 	if (opts.session?.id) {
-		trackRunSession(opts.runId, opts.session, opts.cwd ?? defaultCwd);
+		if (opts.session.cleanup !== "keep") {
+			trackRunSession(opts.runId, opts.session, opts.cwd ?? defaultCwd);
+		}
 		args.push("--session-id", opts.session.id);
 		if (opts.session.dir) args.push("--session-dir", opts.session.dir);
 	} else {

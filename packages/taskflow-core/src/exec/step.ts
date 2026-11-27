@@ -359,7 +359,10 @@ async function runOneAgent(
 					cwd: effCwd,
 					signal: callSignal,
 					idleTimeoutMs: resolveIdleMs(phase, ctx.state.def),
-					session: resolvePhaseSession(phase, ctx.state.runId),
+					session: resolvePhaseSession(phase, ctx.state.runId, {
+						args: ctx.args,
+						steps: ctx.steps,
+					}),
 					onTerminalCommit,
 				},
 				ctx.deps.globalThinking,

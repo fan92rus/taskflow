@@ -125,6 +125,9 @@ export interface RunOptions {
 		id: string;
 		dir?: string;
 		mode?: "continue" | "fresh";
+		/** Host cleanup policy. "run" (default) deletes the transcript when the
+		 *  run terminates; "keep" hands it to a later run (e.g. manual rework). */
+		cleanup?: "run" | "keep";
 	};
 	/** @internal Host-to-runtime linearization hook. Process runners call this
 	 * synchronously when a terminal candidate is irreversibly committed, before

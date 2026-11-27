@@ -134,8 +134,27 @@ phases and reopened.
 |------|-----|
 | Share a few structured findings across fan-out | `shareContext` + `ctx_write`/`ctx_read` |
 | Continue the same worker with its full reasoning after review | `session.key` on work and fix |
+| Continue in a LATER run (manual rework flow) | explicit `session.id`, producer `cleanup: "keep"` |
 | A reviewer that must be independent | no `session` on the reviewer phase |
 | Isolate a retry from a failed session | `session.mode: "fresh"` |
+
+**Cross-run handoff:** `session.id` accepts an exact placeholder. A first flow
+keeps the transcript, a second flow continues and cleans it:
+
+```jsonc
+// producer run
+{ "id": "work", "type": "agent", "agent": "executor",
+  "session": { "id": "leaf-8en-worker", "cleanup": "keep" },
+  "task": "Implement the leaf." }
+
+// rework run: pass --arg sessionId=leaf-8en-worker
+{ "id": "fix", "type": "agent", "agent": "executor",
+  "session": { "id": "{args.sessionId}" },
+  "task": "Continue; fix only {args.blockers}." }
+```
+
+An unresolved placeholder disables reuse with a warning rather than opening
+an arbitrary session id.
 
 **Cross-run cache:** disabled for session phases. A cached output would skip
 opening the transcript entirely, so `cross-run` is downgraded to `run-only` at

@@ -123,7 +123,9 @@ const RetrySchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-const SESSION_ID_PATTERN = String.raw`^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$`;
+// Literal ids plus exact interpolation placeholders such as {args.sessionId}.
+// The runtime re-validates the RESOLVED id with SAFE_ID before opening a session.
+const SESSION_ID_PATTERN = String.raw`^(?:[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]|\{[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*\})$`;
 
 /**
  * Per-phase persistent-session policy. `id` is an explicit session identifier
@@ -138,7 +140,7 @@ const SessionSchema = Type.Union(
 			{
 				id: Type.String({
 					pattern: SESSION_ID_PATTERN,
-					description: "Explicit Pi session id; phases with the same id continue the same session.",
+					description: "Explicit Pi session id or an exact {args.X}/{steps.X} placeholder resolved at execution; phases with the same id continue the same session.",
 				}),
 				mode: Type.Optional(
 					StringEnum(["continue", "fresh"] as const, {
@@ -149,6 +151,12 @@ const SessionSchema = Type.Union(
 				dir: Type.Optional(
 					Type.String({
 						description: "Host-specific session storage directory override (Pi: --session-dir).",
+					}),
+				),
+				cleanup: Type.Optional(
+					StringEnum(["run", "keep"] as const, {
+						description: "Session artifact cleanup. Default 'run' deletes it when the run terminates; 'keep' leaves it for a later run (manual rework handoff).",
+						default: "run",
 					}),
 				),
 			},
@@ -169,6 +177,12 @@ const SessionSchema = Type.Union(
 				dir: Type.Optional(
 					Type.String({
 						description: "Host-specific session storage directory override (Pi: --session-dir).",
+					}),
+				),
+				cleanup: Type.Optional(
+					StringEnum(["run", "keep"] as const, {
+						description: "Session artifact cleanup. Default 'run' deletes it when the run terminates; 'keep' leaves it for a later run (manual rework handoff).",
+						default: "run",
 					}),
 				),
 			},

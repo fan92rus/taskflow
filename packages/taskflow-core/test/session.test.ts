@@ -7,7 +7,7 @@ test("resolvePhaseSession: explicit id is honored with defaults", () => {
 		{ id: "work", type: "agent", agent: "a", task: "x", session: { id: "worker-8en" } },
 		"run-1",
 	);
-	assert.deepEqual(resolved, { id: "worker-8en", dir: undefined, mode: "continue" });
+	assert.deepEqual(resolved, { id: "worker-8en", dir: undefined, mode: "continue", cleanup: "run" });
 });
 
 test("resolvePhaseSession: key is scoped to the current run", () => {
@@ -38,4 +38,36 @@ test("resolvePhaseSession: fresh mode synthesizes a unique id", () => {
 
 test("resolvePhaseSession: absent session opt-in stays off", () => {
 	assert.equal(resolvePhaseSession({ id: "work", type: "agent", agent: "a", task: "x" }, "run-1"), undefined);
+});
+
+test("resolvePhaseSession: interpolates explicit id and dir from args/steps", () => {
+	const phase = {
+		id: "fix",
+		type: "agent" as const,
+		agent: "a",
+		task: "x",
+		session: { id: "{args.sessionId}", dir: "{steps.session-dir.output}" },
+	};
+	const resolved = resolvePhaseSession(phase, "run-2", {
+		args: { sessionId: "run-1-worker" },
+		steps: { "session-dir": { output: "D:/tmp/sessions" } },
+	});
+	assert.deepEqual(resolved, { id: "run-1-worker", dir: "D:/tmp/sessions", mode: "continue", cleanup: "run" });
+});
+
+test("resolvePhaseSession: disables reuse when a placeholder stays unresolved", () => {
+	const warnings: string[] = [];
+	const original = console.warn;
+	console.warn = (message?: unknown) => warnings.push(String(message));
+	try {
+		const resolved = resolvePhaseSession(
+			{ id: "fix", type: "agent", agent: "a", task: "x", session: { id: "{args.missing}" } },
+			"run-3",
+			{ args: {}, steps: {} },
+		);
+		assert.equal(resolved, undefined);
+		assert.equal(warnings.length, 1);
+	} finally {
+		console.warn = original;
+	}
 });

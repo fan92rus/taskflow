@@ -19,6 +19,8 @@ test("validateTaskflow: accepts a valid flow", () => {
 test("validateTaskflow: phase.session accepts id or key with mode/dir", () => {
 	for (const session of [
 		{ id: "worker-8en", mode: "continue" as const, dir: "/tmp/sessions" },
+		{ id: "{args.sessionId}", mode: "continue" as const },
+		{ id: "handoff-worker", cleanup: "keep" as const },
 		{ key: "worker", mode: "fresh" as const },
 	]) {
 		const result = validateTaskflow({
