@@ -965,3 +965,50 @@ test("Pi completion: retrying agent_end waits for the later settled answer", asy
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("runAgentTask: session opt-in uses --session-id/--session-dir, default stays --no-session", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tf-sessionwire-"));
+	const capture = path.join(dir, "capture.json");
+	const fakePi = path.join(dir, "fake-pi.mjs");
+	fs.writeFileSync(
+		fakePi,
+		`import * as fs from "node:fs";\n` +
+			`const argv = process.argv.slice(2);\n` +
+			`const val = (flag) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : null; };\n` +
+			`fs.writeFileSync(${JSON.stringify(capture)}, JSON.stringify({\n` +
+			`  noSession: argv.includes("--no-session"),\n` +
+			`  sessionId: val("--session-id"),\n` +
+			`  sessionDir: val("--session-dir"),\n` +
+			`}));\n` +
+			`process.exit(0);\n`,
+	);
+	const prevBin = process.env.PI_TASKFLOW_PI_BIN;
+	const prevEntry = process.env.PI_TASKFLOW_PI_ENTRY;
+	delete process.env.PI_TASKFLOW_PI_BIN;
+	process.env.PI_TASKFLOW_PI_ENTRY = fakePi;
+	try {
+		const agents: AgentConfig[] = [
+			{ name: "t", description: "t", systemPrompt: "", source: "user", filePath: "" },
+		];
+
+		await runAgentTask(dir, agents, "t", "default", {});
+		const off = JSON.parse(fs.readFileSync(capture, "utf-8"));
+		assert.equal(off.noSession, true, "default runs remain ephemeral");
+		assert.equal(off.sessionId, null, "default has no --session-id");
+
+		fs.rmSync(capture, { force: true });
+		await runAgentTask(dir, agents, "t", "continued", {
+			session: { id: "worker-8en", dir: "/tmp/sessions" },
+		});
+		const on = JSON.parse(fs.readFileSync(capture, "utf-8"));
+		assert.equal(on.noSession, false, "session opt-in removes --no-session");
+		assert.equal(on.sessionId, "worker-8en", "--session-id forwarded");
+		assert.equal(on.sessionDir, "/tmp/sessions", "--session-dir forwarded");
+	} finally {
+		if (prevBin === undefined) delete process.env.PI_TASKFLOW_PI_BIN;
+		else process.env.PI_TASKFLOW_PI_BIN = prevBin;
+		if (prevEntry === undefined) delete process.env.PI_TASKFLOW_PI_ENTRY;
+		else process.env.PI_TASKFLOW_PI_ENTRY = prevEntry;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});

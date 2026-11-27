@@ -16,6 +16,38 @@ test("validateTaskflow: accepts a valid flow", () => {
 	assert.equal(r.ok, true, r.errors.join("; "));
 });
 
+test("validateTaskflow: phase.session accepts id or key with mode/dir", () => {
+	for (const session of [
+		{ id: "worker-8en", mode: "continue" as const, dir: "/tmp/sessions" },
+		{ key: "worker", mode: "fresh" as const },
+	]) {
+		const result = validateTaskflow({
+			name: "session-flow",
+			phases: [{ id: "work", type: "agent", agent: "a", task: "do", session, final: true }],
+		});
+		assert.equal(result.ok, true, JSON.stringify(session) + ": " + result.errors.join("; "));
+	}
+	const bad = validateTaskflow({
+		name: "session-flow",
+		phases: [{ id: "work", type: "agent", agent: "a", task: "do", session: { id: "bad id" }, final: true }],
+	});
+	assert.equal(bad.ok, false, "session ids must satisfy Pi's --session-id grammar");
+	const cached = validateTaskflow({
+		name: "session-flow",
+		phases: [{
+			id: "work",
+			type: "agent",
+			agent: "a",
+			task: "do",
+			session: { key: "worker" },
+			cache: { scope: "cross-run" },
+			final: true,
+		}],
+	});
+	assert.equal(cached.ok, false, "cross-run cache must not skip opening a persisted session");
+	assert.match(cached.errors.join("\n"), /cross-run.*session reuse/);
+});
+
 test("validateTaskflow: scriptCwd accepts only invocation or flow", () => {
 	for (const scriptCwd of ["invocation", "flow"]) {
 		const result = validateTaskflow({

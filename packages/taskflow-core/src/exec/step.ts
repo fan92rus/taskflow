@@ -25,6 +25,7 @@ import {
 	type InterpolationContext,
 } from "../interpolate.ts";
 import { abortableDelay, failedResultDisplayOutput, hasMeaningfulFailedOutput, isFailed as isFailedResult, isTransientError, mapWithConcurrencyLimit, PHASE_TIMEOUT_ABORT_GRACE_MS } from "../runner-core.ts";
+import { resolvePhaseSession } from "./session.ts";
 import {
 	resolveScriptCwd,
 	runScriptCommand,
@@ -358,6 +359,7 @@ async function runOneAgent(
 					cwd: effCwd,
 					signal: callSignal,
 					idleTimeoutMs: resolveIdleMs(phase, ctx.state.def),
+					session: resolvePhaseSession(phase, ctx.state.runId),
 					onTerminalCommit,
 				},
 				ctx.deps.globalThinking,

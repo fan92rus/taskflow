@@ -123,6 +123,61 @@ const RetrySchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const SESSION_ID_PATTERN = String.raw`^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$`;
+
+/**
+ * Per-phase persistent-session policy. `id` is an explicit session identifier
+ * shared by every phase that declares it. `key` is resolved by the runtime as
+ * `<runId>-<key>`, which keeps continuation inside one run without leaking
+ * session state into later runs. `fresh` synthesizes a unique id per attempt.
+ * Hosts that do not support sessions may ignore this opt-in.
+ */
+const SessionSchema = Type.Union(
+	[
+		Type.Object(
+			{
+				id: Type.String({
+					pattern: SESSION_ID_PATTERN,
+					description: "Explicit Pi session id; phases with the same id continue the same session.",
+				}),
+				mode: Type.Optional(
+					StringEnum(["continue", "fresh"] as const, {
+						description: "'continue' reuses the resolved id; 'fresh' appends a unique suffix per phase execution (not per retry attempt).",
+						default: "continue",
+					}),
+				),
+				dir: Type.Optional(
+					Type.String({
+						description: "Host-specific session storage directory override (Pi: --session-dir).",
+					}),
+				),
+			},
+			{ additionalProperties: false },
+		),
+		Type.Object(
+			{
+				key: Type.String({
+					pattern: SESSION_ID_PATTERN,
+					description: "Session key; the runtime resolves it as <runId>-<key> within the current run.",
+				}),
+				mode: Type.Optional(
+					StringEnum(["continue", "fresh"] as const, {
+						description: "'continue' reuses the resolved id; 'fresh' appends a unique suffix per phase execution (not per retry attempt).",
+						default: "continue",
+					}),
+				),
+				dir: Type.Optional(
+					Type.String({
+						description: "Host-specific session storage directory override (Pi: --session-dir).",
+					}),
+				),
+			},
+			{ additionalProperties: false },
+		),
+	],
+	{ description: "Opt a phase into persistent subagent-session continuity instead of an ephemeral child." },
+);
+
 /**
  * Per-phase cache policy. Defaults to `run-only` which is exactly the historical
  * behavior (within-run resume only). `cross-run` opts a phase into the persistent
@@ -432,6 +487,7 @@ const PhaseSchema = Type.Object(
 			}),
 		),
 		cache: Type.Optional(CacheSchema),
+		session: Type.Optional(SessionSchema),
 		shareContext: Type.Optional(
 			Type.Boolean({
 				description:
@@ -1547,6 +1603,11 @@ export function validateTaskflow(def: unknown, opts: ValidationOptions = {}): Va
 			if (scope === "cross-run" && (CACHE_CROSS_RUN_BLOCKED_TYPES as readonly string[]).includes(type)) {
 				errors.push(
 					`Phase '${p.id}' (${type}): cache.scope 'cross-run' is not allowed for ${CACHE_CROSS_RUN_BLOCKED_TYPES.join("/")} phases — they must produce a fresh result each run. Use 'run-only'.`,
+				);
+			}
+			if (scope === "cross-run" && p.session) {
+				errors.push(
+					`Phase '${p.id}': cache.scope 'cross-run' is not allowed with session reuse — a memoized hit would skip opening the persisted transcript. Use 'run-only'.`,
 				);
 			}
 			// Gate C: every fingerprint entry must use a known prefix (fail closed).

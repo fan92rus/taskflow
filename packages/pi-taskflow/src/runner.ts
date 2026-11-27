@@ -422,7 +422,13 @@ export async function runAgentTask(
 		tools = [...new Set([...tools, ...CTX_TOOL_NAMES])];
 	}
 
-	const args: string[] = ["--mode", "json", "-p", "--no-session"];
+	const args: string[] = ["--mode", "json", "-p"];
+	if (opts.session?.id) {
+		args.push("--session-id", opts.session.id);
+		if (opts.session.dir) args.push("--session-dir", opts.session.dir);
+	} else {
+		args.push("--no-session");
+	}
 	if (piChild.resourceProfile !== "inherit") args.push("--no-extensions");
 	if (model) args.push("--model", model);
 	if (thinking) args.push("--thinking", thinking);

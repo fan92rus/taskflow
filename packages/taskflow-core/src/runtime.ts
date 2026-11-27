@@ -16,6 +16,7 @@ import type { AgentConfig } from "./agents.ts";
 import { coerceArray, evaluateCondition, interpolate, interpolateValue, type InterpolationContext, safeParse, tryEvaluateCondition } from "./interpolate.ts";
 import { contractViolations } from "./contract.ts";
 import { failedResultDisplayOutput, hasMeaningfulFailedOutput, isFailed, isTransientError, mapWithConcurrencyLimit, PHASE_TIMEOUT_ABORT_GRACE_MS, sanitizeErrorMessage } from "./runner-core.ts";
+import { resolvePhaseSession } from "./exec/session.ts";
 import type { LiveUpdate, RunResult, SubagentRunner } from "./host/runner-types.ts";
 
 /** The host-neutral subagent runner signature the engine drives. A host adapter
@@ -1632,6 +1633,13 @@ async function executePhaseInner(
 	if (state.flowDefHash === "failed" && cacheScope === "cross-run") {
 		cacheScope = "run-only";
 	}
+	// Session continuity is stateful: a cross-run cache hit could skip opening
+	// the persisted transcript entirely, which would break work/fix handoff.
+	// Keep within-run resume (same run, same transcript) but never memoize a
+	// session phase across runs, including under flow-level `incremental`.
+	if (phase.session && cacheScope === "cross-run") {
+		cacheScope = "run-only";
+	}
 	// Side-effect classification: a non-idempotent phase is NEVER cached — not
 	// served from within-run resume, not served from or written to the cross-run
 	// store (cachedPhase and recordCache both gate on scope). One assignment
@@ -1730,6 +1738,7 @@ async function executePhaseInner(
 			ctxDir: ctxDir,
 			nodeId: ctxDir ? ctxNodeId : undefined,
 			idleTimeoutMs: effIdleTimeoutMs,
+			session: resolvePhaseSession(phase, state.runId),
 			onTerminalCommit,
 		};
 		const invoke = () => run(

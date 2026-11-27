@@ -111,6 +111,21 @@ export interface RunOptions {
 	 */
 	ctxDir?: string;
 	nodeId?: string;
+	/**
+	 * Persistent Pi session reuse (opt-in). When set, a host capable of session
+	 * continuity opens the SAME session for every call that carries the same id
+	 * instead of spawning an ephemeral `--no-session` process. Hosts that cannot
+	 * support this may ignore the field (the child simply starts a new session).
+	 *
+	 * `dir` is a host-specific session storage override. `mode: "fresh"` asks the
+	 * runtime to synthesize a unique id per phase execution; `continue`
+	 * (default) reuses the resolved id.
+	 */
+	session?: {
+		id: string;
+		dir?: string;
+		mode?: "continue" | "fresh";
+	};
 	/** @internal Host-to-runtime linearization hook. Process runners call this
 	 * synchronously when a terminal candidate is irreversibly committed, before
 	 * sending reap signals. Flow data cannot provide this callback. */

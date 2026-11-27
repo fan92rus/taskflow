@@ -23,6 +23,7 @@ import { parseGateVerdict, parseTournamentWinner } from "../deterministic.ts";
 import { aggregateUsage, emptyUsage, type UsageStats } from "../usage.ts";
 import { evaluateCondition, interpolate, interpolateValue, safeParse, tryEvaluateCondition, type InterpolationContext } from "../interpolate.ts";
 import { kernelAttemptsOverBudget } from "./kernel-policy.ts";
+import { resolvePhaseSession } from "./session.ts";
 import { abortableDelay, isFailed as isFailedResult, isTransientError, mapWithConcurrencyLimit, PHASE_TIMEOUT_ABORT_GRACE_MS } from "../runner-core.ts";
 import type { Event } from "./events.ts";
 import { EVENT_SCHEMA_VERSION } from "./events.ts";
@@ -153,6 +154,7 @@ async function runAgentCall(
 					cwd: effCwd,
 					signal: callSignal,
 					idleTimeoutMs: resolveIdleMs(phase, ctx.state.def),
+					session: resolvePhaseSession(phase, ctx.state.runId),
 					onTerminalCommit,
 				},
 				ctx.deps.globalThinking,
