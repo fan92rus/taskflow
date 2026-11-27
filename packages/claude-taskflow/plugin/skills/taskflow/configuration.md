@@ -116,15 +116,16 @@ Keys of each object in `phases[]`. Some only apply to specific `type`s.
 | `concurrency` | map, parallel | flow concurrency | Fan-out cap for this phase only. See §4. |
 | `context` | all | — | File paths / `{steps.X}` refs to **pre-read and inject** before the task. See §2.1. |
 | `contextLimit` | all | `8000` | Max characters read **per file** in `context`. See §2.1. |
-| `cache` | all | `run-only` | Per-phase cache policy (`scope`/`ttl`/`fingerprint`). See §11. |
+| `cache` | all | `run-only` | Per-phase cache policy (`scope`/`ttl`/`fingerprint`). See §8. |
+| `session` | agent-running phases | — | Continue the same persisted subagent session across phases (`key` or `id`, `mode`, `dir`). Pi host only. See §8.1. |
 | `final` | all | last phase | Exactly one phase may be `final`; its output is returned. |
 
 > Gate-only control fields (`eval`, `onBlock`, score), the loop/tournament control
 > fields (`until`/`maxIterations`/`convergence`, `variants`/`judge`/`judgeAgent`/`mode`),
 > the script fields (`run`/`input`/`timeout`), race/expand fields above, and the
 > cross-phase contract fields (`expect`, `timeout`, `optional`, `strictInterpolation`)
-> are documented in `SKILL.md` next to their phase types. `shareContext` and the
-> workspace `cwd` keywords (`temp`/`dedicated`/`worktree`) are in `advanced.md`.
+> are documented in `SKILL.md` next to their phase types. `shareContext`, `session`, and the workspace `cwd` keywords
+> (`temp`/`dedicated`/`worktree`) are in `advanced.md`.
 
 ---
 
@@ -439,6 +440,15 @@ Each entry is one of:
 | `file:<path>` | that file's content changes | sha256 of the file (>10 MB or missing → `<skip>`/`<missing>`) |
 | `env:<NAME>` | the env var changes | the env value |
 
+### Session phases are never cross-run cached
+
+A phase with `session` depends on the contents of a persisted transcript, not
+just on its prompt text. Cross-run memoization would return a previous output
+**without opening that transcript**, so the runtime downgrades `cross-run` to
+`run-only` for session phases (including under flow-level `incremental`), and
+validation rejects an explicit `cache.scope: "cross-run"` on such a phase.
+Within-run resume is still allowed. See §8.1.
+
 ### What is cached, and when
 
 - Only phases whose **`status` is `done`** and that **were not themselves a cache
@@ -452,6 +462,63 @@ Each entry is one of:
 > (dependency summaries, doc generation, repeated audits of the same tree). For
 > phases that *should* re-run every time (anything reading live external state
 > without a fingerprint), leave the default `run-only` or set `off`.
+
+---
+
+## 8.1 Persistent session reuse (`session`)
+
+> **Pi host only.** Codex, Claude, OpenCode, Grok, and Hermes runners ignore
+> this opt-in and keep their normal isolated-process behavior.
+
+By default every agent phase runs in an ephemeral Pi process
+(`--no-session`). Give two phases the same `session.key` and they open the
+**same saved Pi session** via `--session-id`: the second phase continues the
+first phase's transcript, so provider prompt-cache can reuse the worker's
+context and only the new instructions are fresh tokens.
+
+```jsonc
+{
+  "id": "work",
+  "type": "agent",
+  "agent": "executor",
+  "session": { "key": "worker" },          // resolves to <runId>-worker
+  "task": "Implement the leaf. Record decisions in your final answer."
+},
+{
+  "id": "fix",
+  "type": "agent",
+  "agent": "executor",
+  "dependsOn": ["review"],
+  "session": { "key": "worker" },          // same session, not a new process
+  "task": "Continue. Fix only these review blockers: ..."
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `key` | Session key scoped to the current run: `<runId>-<key>`. A new run does **not** inherit the old transcript. Best default for work → rework loops. |
+| `id` | Explicit session id, honored verbatim. Use only when you deliberately want cross-run continuity. |
+| `mode` | `continue` (default) reuses the id; `fresh` appends a unique suffix per phase execution (not per retry attempt). |
+| `dir` | Optional `--session-dir` override for session storage. |
+
+**Rules of thumb:**
+
+- Keep the same `cwd`, agent/model, tools, and system prompt across the
+  phases that share a session; that is what makes the provider cache prefix
+  stable.
+- Put new information (review blockers, loop iteration) **at the end** of the
+  later task. Do not change the beginning of the shared prompt.
+- Reviewers should **not** opt into the worker's session — independent review
+  stays a separate fresh session.
+- Sessions are stateful: `session` phases are never cross-run cached (§8).
+  If a phase must re-run from scratch, set `mode: "fresh"`.
+
+**Cleanup:** Taskflow does **not** delete Pi session files when a run ends.
+Sessions are written under Pi's session directory (default
+`~/.pi/agent/sessions/<cwd-token>/`, or `session.dir` when set) and persist
+until the user deletes them via Pi's session picker or the filesystem. By
+contrast, the `shareContext` blackboard is per-run and is cleaned up with the
+run.
 
 ---
 

@@ -4,6 +4,10 @@ All notable changes to taskflow are documented here. This project follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+- Pi-host phase field `session` (`key` / `id`, `mode`, `dir`) continues one saved Pi session across agent phases via `--session-id` instead of `--no-session`. Session phases are never cross-run cached; reviewers stay independent. Documented in the configuration and advanced skill docs, with a README example.
+
 ### Chore
 
 - HOL plugin-scanner highs: dummy test credentials use scanner placeholders / short literals; no `eval (` in comments; smoke/runner no longer place a `${…}` template within 30 chars of `spawn`. Local scan 81/100, 0 high. **Not GA.**

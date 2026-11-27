@@ -166,6 +166,26 @@ validate → Taskflow JSON → FlowIR + content hash
 
 Across those phase types, the runtime provides shared behavior: dependencies, conditions, retries, timeouts, output contracts, budgets, workspace isolation, explicit final-output selection, and persistence for resume. Each phase kind accepts only the fields that are safe and meaningful for it.
 
+### Continue the same agent after review
+
+On the Pi host, give `work` and `fix` the same `session.key` to continue one
+saved Pi session instead of launching two isolated subagents. The later phase
+reuses the worker's transcript and provider prompt-cache; review phases stay
+fresh and independent.
+
+```jsonc
+{ "id": "work", "type": "agent", "agent": "executor",
+  "session": { "key": "worker" }, "task": "Implement the leaf." },
+{ "id": "fix",  "type": "agent", "agent": "executor",
+  "dependsOn": ["review"], "session": { "key": "worker" },
+  "task": "Continue; fix only {steps.review.json.blockers}." }
+```
+
+Session phases are never cross-run cached, and Taskflow does **not** delete Pi
+session files after a run — set `session.dir` if you want them in a dedicated
+folder you can prune. See `skills-src/taskflow/advanced.md` for the full
+contract.
+
 Useful zero-token operations include:
 
 | Operation | Question it answers |

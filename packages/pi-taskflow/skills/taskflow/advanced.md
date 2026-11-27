@@ -106,6 +106,55 @@ still applies.
 
 ---
 
+## Persistent session reuse (`session`) — opt-in
+
+> **Pi host only.** Other hosts keep isolated processes.
+
+`shareContext` shares selected **facts** through a blackboard. Sometimes you
+need the whole worker transcript instead: after external review, the fix phase
+should continue the same agent with all decisions and file reads still in
+context. Give both phases the same `session.key`:
+
+```jsonc
+{ "id": "work",  "type": "agent", "agent": "executor",
+  "session": { "key": "worker" },
+  "task": "Implement the leaf." },
+{ "id": "fix",   "type": "agent", "agent": "executor",
+  "dependsOn": ["review"],
+  "session": { "key": "worker" },
+  "task": "Continue the same session. Fix only: {steps.review.json.blockers}" }
+```
+
+The runner opens the first phase with `--session-id <runId>-worker` instead of
+`--no-session`; the later phase opens the same saved session and appends a new
+turn. This is **not** one live OS process: the session is persisted between
+phases and reopened.
+
+| Need | Use |
+|------|-----|
+| Share a few structured findings across fan-out | `shareContext` + `ctx_write`/`ctx_read` |
+| Continue the same worker with its full reasoning after review | `session.key` on work and fix |
+| A reviewer that must be independent | no `session` on the reviewer phase |
+| Isolate a retry from a failed session | `session.mode: "fresh"` |
+
+**Cross-run cache:** disabled for session phases. A cached output would skip
+opening the transcript entirely, so `cross-run` is downgraded to `run-only` at
+runtime and rejected by validation when explicit. Within-run resume remains
+available.
+
+**Prompt-cache hygiene:** keep the shared prompt prefix byte-identical; append
+new instructions at the end. Changing the model, tools, cwd, or system prompt
+between phases weakens cache reuse even though the session transcript is still
+continued.
+
+**Cleanup:** unlike the per-run blackboard, Pi session files are **not**
+deleted by Taskflow when the run finishes. They stay in Pi's session directory
+(default `~/.pi/agent/sessions/<cwd-token>/`, or `session.dir`) until deleted
+manually through Pi's session picker or the filesystem. Use a dedicated
+`session.dir` in automated flows if you want one place to prune them.
+
+---
+
 ## Dynamic sub-flows (`flow{def}`) — the full contract
 
 A `flow` phase with `def` resolves a sub-flow **at runtime**, usually from an

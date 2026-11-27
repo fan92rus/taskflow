@@ -22,6 +22,7 @@ breadth caps match `flow{def}`. **Event kernel** still excludes `race`/`expand`
 
 ---
 
+
 ## Dynamic sub-flows (`flow{def}`) — the full contract
 
 A `flow` phase with `def` resolves a sub-flow **at runtime**, usually from an
@@ -122,6 +123,7 @@ write can start.
 each `cwd: "worktree"`, each attempting a different refactor strategy and
 reporting its test results; a downstream gate/judge picks which diff to apply
 for real. The main tree is never touched by the losers.
+
 
 ---
 
