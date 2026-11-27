@@ -112,6 +112,20 @@ export interface RunOptions {
 	ctxDir?: string;
 	nodeId?: string;
 	/**
+	 * Supervisor escalation (opt-in). Hosts that support it expose a blocking
+	 * ask/contact_supervisor tool to the child so it can pause mid-task until
+	 * the lead agent or the operator answers, then continue in the same turn.
+	 * Hosts that cannot support it may ignore the field (fail-open).
+	 */
+	supervisor?: {
+		/** Target session name or id of the interactive lead/orchestrator session. */
+		target: string;
+		/** Optional per-phase ask timeout in ms; host may also read its own env default. */
+		timeoutMs?: number;
+	};
+	/** Owning phase id, used by hosts to label escalation requests. */
+	phaseId?: string;
+	/**
 	 * Persistent Pi session reuse (opt-in). When set, a host capable of session
 	 * continuity opens the SAME session for every call that carries the same id
 	 * instead of spawning an ephemeral `--no-session` process. Hosts that cannot

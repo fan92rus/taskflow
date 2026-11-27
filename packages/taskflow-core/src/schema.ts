@@ -199,6 +199,28 @@ const SessionSchema = Type.Union(
 );
 
 /**
+ * Per-phase supervisor escalation. Opt-in: the host exposes a blocking ask
+ * tool (`contact_supervisor`) so an agent phase can pause mid-task until the
+ * lead agent or operator answers, then continue with the answer in the same
+ * turn. Requires host allowlisting of the intercom extension on Pi.
+ */
+const SupervisorSchema = Type.Object(
+	{
+		target: Type.String({
+			minLength: 1,
+			description: "Interactive supervisor session name/id (Pi intercom target) that receives escalation asks.",
+		}),
+		timeoutMs: Type.Optional(
+			Type.Number({
+				minimum: 1000,
+				description: "Blocking ask timeout override in ms. The host env PI_INTERCOM_ASK_TIMEOUT_MS is used when omitted.",
+			}),
+		),
+	},
+	{ additionalProperties: false },
+);
+
+/**
  * Per-phase cache policy. Defaults to `run-only` which is exactly the historical
  * behavior (within-run resume only). `cross-run` opts a phase into the persistent
  * cross-run memoization store; see docs/rfc-cross-run-memoization.md.
@@ -530,6 +552,7 @@ const PhaseSchema = Type.Object(
 		),
 		cache: Type.Optional(CacheSchema),
 		session: Type.Optional(SessionSchema),
+		supervisor: Type.Optional(SupervisorSchema),
 		shareContext: Type.Optional(
 			Type.Boolean({
 				description:
@@ -1631,6 +1654,21 @@ export function validateTaskflow(def: unknown, opts: ValidationOptions = {}): Va
 			}
 		} else if ((p as { idleTimeout?: unknown }).idleTimeout !== undefined) {
 			warnings.push(`Phase '${p.id}' (${type}): 'idleTimeout' only applies to agent-running phases (${AGENT_RUNNING_PHASE_TYPES.join("/")}) — ignored here`);
+		}
+		const phaseSupervisor = (p as { supervisor?: { target?: unknown; timeoutMs?: unknown } }).supervisor;
+		if (phaseSupervisor !== undefined) {
+			if (!AGENT_RUNNING_FOR_IDLE.has(type)) {
+				warnings.push(`Phase '${p.id}' (${type}): 'supervisor' only applies to agent-running phases (${AGENT_RUNNING_PHASE_TYPES.join("/")}) — ignored here`);
+			}
+			if (typeof phaseSupervisor.target !== "string" || phaseSupervisor.target.trim().length === 0) {
+				errors.push(`Phase '${p.id}': supervisor.target must be a non-empty string`);
+			}
+			if (
+				phaseSupervisor.timeoutMs !== undefined &&
+				(typeof phaseSupervisor.timeoutMs !== "number" || !Number.isFinite(phaseSupervisor.timeoutMs) || phaseSupervisor.timeoutMs < 1000)
+			) {
+				errors.push(`Phase '${p.id}': supervisor.timeoutMs must be a finite number >= 1000 ms`);
+			}
 		}
 		if (p.retry) {
 			if (typeof p.retry.max !== "number" || p.retry.max < 0) {

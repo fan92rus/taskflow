@@ -49,6 +49,42 @@ function baseDeps(runTask: RuntimeDeps["runTask"], extra: Partial<RuntimeDeps> =
 	return { cwd: "/tmp", agents: AGENTS, runTask, persist: () => {}, onProgress: () => {}, ...extra };
 }
 
+for (const eventKernel of [false, true]) {
+	test(`supervisor: phase opt-in reaches the runner (eventKernel=${eventKernel})`, async () => {
+		const def: Taskflow = {
+			name: "supervisor-wire",
+			phases: [{
+				id: "work",
+				type: "agent",
+				agent: "a",
+				task: "work",
+				supervisor: { target: "orchestrator", timeoutMs: 1234 },
+				final: true,
+			}],
+		};
+		let seen: RunOptions | undefined;
+		const runner: RuntimeDeps["runTask"] = async (_c, _ag, agentName, task, o) => {
+			seen = o;
+			return {
+				agent: agentName,
+				task,
+				exitCode: 0,
+				output: "ok",
+				stderr: "",
+				usage: { ...emptyUsage(), output: 2, turns: 1 },
+				stopReason: "end",
+			};
+		};
+		const res = await executeTaskflow(
+			mkState(def),
+			baseDeps(runner, { eventKernel }),
+		);
+		assert.equal(res.ok, true);
+		assert.deepEqual(seen?.supervisor, { target: "orchestrator", timeoutMs: 1234 });
+		assert.equal(seen?.phaseId, "work");
+	});
+}
+
 // ---------------------------------------------------------------------------
 // retry
 // ---------------------------------------------------------------------------

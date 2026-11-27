@@ -54,6 +54,21 @@ export type { LiveUpdate, RunOptions, RunResult, SubagentRunner, EventAccumulato
 /** The Shared Context Tree tool names a subagent may call when sharing is on. */
 export const CTX_TOOL_NAMES = ["ctx_read", "ctx_write", "ctx_report", "ctx_spawn"] as const;
 
+/** Tools exposed by pi-intercom when supervisor bridge env is present. */
+export const SUPERVISOR_TOOL_NAMES = ["contact_supervisor"] as const;
+
+/** Guidance appended when a phase opts into supervisor escalation. */
+export const SUPERVISOR_TOOLS_GUIDANCE = [
+	"## Supervisor escalation",
+	"",
+	"You may pause mid-task for a decision. When blocked by an API/scope/product",
+	"choice or an irreversible action, call `contact_supervisor` with",
+	"`reason: \"need_decision\"` and a concrete question with options. The tool blocks",
+	"until the lead agent or the operator answers, then returns the answer as the",
+	"tool result. Continue in the same turn with that answer — do not guess, do not",
+	"silently choose, and do not end the task while a decision is pending.",
+].join("\n");
+
 /**
  * Guidance appended to a subagent's system prompt when the Shared Context Tree
  * is enabled for its phase. Registering the ctx_* tools makes them AVAILABLE;
@@ -422,6 +437,11 @@ export async function runAgentTask(
 	if (ctxEnabledEarly && tools && tools.length > 0) {
 		tools = [...new Set([...tools, ...CTX_TOOL_NAMES])];
 	}
+	// Supervisor escalation is an explicit phase opt-in. Extend the allowlist so
+	// the registered contact_supervisor tool is not filtered out by --tools.
+	if (opts.supervisor && tools && tools.length > 0) {
+		tools = [...new Set([...tools, ...SUPERVISOR_TOOL_NAMES])];
+	}
 
 	const args: string[] = ["--mode", "json", "-p"];
 	if (opts.session?.id) {
@@ -464,7 +484,11 @@ export async function runAgentTask(
 		// the subagent the ctx_* tools exist and the discipline for using them.
 		// Without this the model only sees terse tool descriptions and rarely uses
 		// them proactively (capability != usage).
-		const appendedPrompt = [agent.systemPrompt.trim(), ctxEnabled ? CTX_TOOLS_GUIDANCE : ""]
+		const appendedPrompt = [
+			agent.systemPrompt.trim(),
+			ctxEnabled ? CTX_TOOLS_GUIDANCE : "",
+			opts.supervisor ? SUPERVISOR_TOOLS_GUIDANCE : "",
+		]
 			.filter(Boolean)
 			.join("\n\n");
 		if (appendedPrompt) {
@@ -498,6 +522,21 @@ export async function runAgentTask(
 		// The owning run wins over an inherited parent marker. Direct callers
 		// without an identity keep the existing environment behavior.
 		if (opts.runId !== undefined) childEnv.PI_SUBAGENT_RUN_ID = opts.runId;
+		// Supervisor bridge. pi-intercom registers its child-only contact_supervisor
+		// tool when all four bridge vars are present. Clear stale inherited values
+		// first: a taskflow child must never contact a parent it was not assigned.
+		delete childEnv.PI_SUBAGENT_ORCHESTRATOR_TARGET;
+		delete childEnv.PI_SUBAGENT_CHILD_AGENT;
+		delete childEnv.PI_SUBAGENT_CHILD_INDEX;
+		delete childEnv.PI_INTERCOM_ASK_TIMEOUT_MS;
+		if (opts.supervisor) {
+			childEnv.PI_SUBAGENT_ORCHESTRATOR_TARGET = opts.supervisor.target;
+			childEnv.PI_SUBAGENT_CHILD_AGENT = agentName;
+			childEnv.PI_SUBAGENT_CHILD_INDEX = opts.phaseId ?? "0";
+			if (opts.supervisor.timeoutMs !== undefined) {
+				childEnv.PI_INTERCOM_ASK_TIMEOUT_MS = String(opts.supervisor.timeoutMs);
+			}
+		}
 		// A child agent is not a host principal. Never let it inherit the
 		// operator's resolve-only bridge opt-in and mint equivalent authority.
 		delete childEnv[CWD_BRIDGE_MODE_ENV];

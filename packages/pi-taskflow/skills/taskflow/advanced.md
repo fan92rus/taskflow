@@ -172,6 +172,40 @@ reaches a terminal state. Set `TASKFLOW_DEBUG=1` (or
 `TASKFLOW_KEEP_SESSIONS=1`) to keep them. A dedicated `session.dir` is still
 useful: it gives manual cleanup and debugging a single predictable folder.
 
+## Supervisor escalation (`supervisor`) — Pi + pi-intercom
+
+`session` reopens a transcript between phases. `supervisor` goes further: the
+worker can pause **inside one turn**, ask a human/lead agent, and continue with
+the answer as a tool result. This uses `pi-intercom`'s child-only
+`contact_supervisor` tool rather than a Taskflow `approval` phase (which only
+works in an interactive foreground run and auto-rejects in detached mode).
+
+```jsonc
+{ "id": "work", "type": "agent", "agent": "worker",
+  "supervisor": { "target": "orchestrator", "timeoutMs": 1800000 },
+  "session": { "id": "tf-8en-worker", "cleanup": "keep" },
+  "tools": ["read", "grep", "find", "ls", "edit", "write"],
+  "task": "Implement the leaf. Escalate with contact_supervisor if blocked." }
+```
+
+The host must allowlist the intercom extension in `~/.pi/agent/settings.json`
+(see `configuration.md` §8.2) and the supervisor target must be an interactive
+TUI session, e.g. `/alias orchestrator`. Taskflow sets the four
+`PI_SUBAGENT_*` bridge variables plus an optional ask timeout, extends an
+explicit tools allowlist with `contact_supervisor`, and appends a short usage
+guidance block to the system prompt.
+
+```text
+orchestrator (interactive TUI)
+  └─ detached taskflow campaign
+       └─ worker → contact_supervisor(need_decision) → answer → same turn continues
+```
+
+Pair with `session.cleanup: "keep"` when the answer must continue in the same
+worker transcript. Reviewers stay sessionless and normally do not opt into
+`supervisor`. A timed-out ask surfaces as a failed phase; set both the phase
+`timeoutMs` and the broker's `PI_INTERCOM_ASK_TIMEOUT_MS` before long campaigns.
+
 ---
 
 ## Dynamic sub-flows (`flow{def}`) — the full contract

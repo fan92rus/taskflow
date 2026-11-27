@@ -56,8 +56,10 @@ import { canonicalJson, hashCanonical } from "./hash.ts";
  *     produces the same output regardless of how many attempts it took.
  *   - `concurrency`: fan-out parallelism; does not change any item's output.
  *   - `final`: marks which phase's output is the flow result; does not change
- *     the phase's own output. */
-const PHASE_FP_STRIP = ["cache", "retry", "concurrency", "final"] as const;
+ *     the phase's own output.
+ *   - `supervisor`: escalation routing/timeouts only; a cached output never
+ *     spawns a child, so changing the target must not invalidate the result. */
+const PHASE_FP_STRIP = ["cache", "retry", "concurrency", "final", "supervisor"] as const;
 
 /** Clone a phase into a plain record with policy fields removed. */
 function stripPolicy(phase: Phase): Record<string, unknown> {

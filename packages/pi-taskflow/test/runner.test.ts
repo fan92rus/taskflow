@@ -967,6 +967,71 @@ test("Pi completion: retrying agent_end waits for the later settled answer", asy
 	}
 });
 
+test("runAgentTask: supervisor opt-in exposes contact_supervisor bridge", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tf-supervisor-wire-"));
+	const capture = path.join(dir, "capture.json");
+	const fakePi = path.join(dir, "fake-pi.mjs");
+	fs.writeFileSync(
+		fakePi,
+		`import * as fs from "node:fs";\n` +
+			`const argv = process.argv.slice(2);\n` +
+			`const val = (flag) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : null; };\n` +
+			`fs.writeFileSync(${JSON.stringify(capture)}, JSON.stringify({\n` +
+			`  tools: val("--tools"),\n` +
+			`  target: process.env.PI_SUBAGENT_ORCHESTRATOR_TARGET ?? null,\n` +
+			`  childAgent: process.env.PI_SUBAGENT_CHILD_AGENT ?? null,\n` +
+			`  childIndex: process.env.PI_SUBAGENT_CHILD_INDEX ?? null,\n` +
+			`  runId: process.env.PI_SUBAGENT_RUN_ID ?? null,\n` +
+			`  askTimeout: process.env.PI_INTERCOM_ASK_TIMEOUT_MS ?? null,\n` +
+			`}));\n` +
+			`process.exit(0);\n`,
+	);
+	const prevBin = process.env.PI_TASKFLOW_PI_BIN;
+	const prevEntry = process.env.PI_TASKFLOW_PI_ENTRY;
+	const prevTarget = process.env.PI_SUBAGENT_ORCHESTRATOR_TARGET;
+	const prevAskTimeout = process.env.PI_INTERCOM_ASK_TIMEOUT_MS;
+	delete process.env.PI_TASKFLOW_PI_BIN;
+	process.env.PI_TASKFLOW_PI_ENTRY = fakePi;
+	process.env.PI_SUBAGENT_ORCHESTRATOR_TARGET = "stale-parent";
+	process.env.PI_INTERCOM_ASK_TIMEOUT_MS = "999";
+	try {
+		const agents: AgentConfig[] = [
+			{ name: "worker", description: "worker", systemPrompt: "", source: "user", filePath: "" },
+		];
+
+		await runAgentTask(dir, agents, "worker", "off", { runId: "sup-run", phaseId: "work" });
+		const off = JSON.parse(fs.readFileSync(capture, "utf-8"));
+		assert.equal(off.target, null, "stale inherited supervisor target is cleared");
+		assert.equal(off.askTimeout, null, "stale inherited ask timeout is cleared");
+		assert.equal(off.tools, null, "no tools whitelist means no forced flags");
+
+		fs.rmSync(capture, { force: true });
+		await runAgentTask(dir, agents, "worker", "on", {
+			runId: "sup-run",
+			phaseId: "work",
+			tools: ["read"],
+			supervisor: { target: "orchestrator", timeoutMs: 1800000 },
+		});
+		const on = JSON.parse(fs.readFileSync(capture, "utf-8"));
+		assert.equal(on.target, "orchestrator");
+		assert.equal(on.childAgent, "worker");
+		assert.equal(on.childIndex, "work");
+		assert.equal(on.runId, "sup-run");
+		assert.equal(on.askTimeout, "1800000");
+		assert.match(on.tools, /contact_supervisor/, "tools allowlist is extended");
+	} finally {
+		if (prevBin === undefined) delete process.env.PI_TASKFLOW_PI_BIN;
+		else process.env.PI_TASKFLOW_PI_BIN = prevBin;
+		if (prevEntry === undefined) delete process.env.PI_TASKFLOW_PI_ENTRY;
+		else process.env.PI_TASKFLOW_PI_ENTRY = prevEntry;
+		if (prevTarget === undefined) delete process.env.PI_SUBAGENT_ORCHESTRATOR_TARGET;
+		else process.env.PI_SUBAGENT_ORCHESTRATOR_TARGET = prevTarget;
+		if (prevAskTimeout === undefined) delete process.env.PI_INTERCOM_ASK_TIMEOUT_MS;
+		else process.env.PI_INTERCOM_ASK_TIMEOUT_MS = prevAskTimeout;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("runAgentTask: session opt-in uses --session-id/--session-dir, default stays --no-session", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tf-sessionwire-"));
 	const capture = path.join(dir, "capture.json");

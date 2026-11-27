@@ -80,6 +80,7 @@ const SIDECAR_PHASE_FIELDS = [
 	"eval",
 	"score",
 	"cache",
+	"supervisor",
 	"shareContext",
 	"cancelLosers",
 	"expandMode",

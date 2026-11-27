@@ -156,6 +156,8 @@ async function runAgentCall(
 					tools: phase.tools,
 					cwd: effCwd,
 					signal: callSignal,
+					supervisor: phase.supervisor,
+					phaseId: phase.id,
 					idleTimeoutMs: resolveIdleMs(phase, ctx.state.def),
 					session: resolvePhaseSession(phase, ctx.state.runId, {
 						args: ctx.args,

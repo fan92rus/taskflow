@@ -1745,6 +1745,8 @@ async function executePhaseInner(
 			onLive,
 			ctxDir: ctxDir,
 			nodeId: ctxDir ? ctxNodeId : undefined,
+			supervisor: phase.supervisor,
+			phaseId: phase.id,
 			idleTimeoutMs: effIdleTimeoutMs,
 			session: resolvePhaseSession(phase, state.runId, ctx),
 			onTerminalCommit,

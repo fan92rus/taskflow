@@ -119,6 +119,7 @@ Keys of each object in `phases[]`. Some only apply to specific `type`s.
 | `contextLimit` | all | `8000` | Max characters read **per file** in `context`. See §2.1. |
 | `cache` | all | `run-only` | Per-phase cache policy (`scope`/`ttl`/`fingerprint`). See §8. |
 | `session` | agent-running phases | — | Continue the same persisted subagent session across phases (`key` or `id`, `mode`, `dir`). Pi host only. See §8.1. |
+| `supervisor` | agent-running phases | — | Expose a blocking escalation tool to the child (`target` session, optional `timeoutMs`). Pi host only; requires an allowlisted `pi-intercom` extension. See §8.2. |
 | `final` | all | last phase | Exactly one phase may be `final`; its output is returned. |
 
 > Gate-only control fields (`eval`, `onBlock`, score), the loop/tournament control
@@ -534,6 +535,73 @@ cleaned up with the run.
 
 ---
 
+## 8.2 Supervisor escalation (`supervisor`) — Pi + pi-intercom
+
+> **Pi host only.** Other hosts ignore this opt-in.
+
+A worker can pause **mid-turn**, ask the lead agent or the operator, receive the
+answer as a tool result, and continue with full context — the same model as a
+Pi subagent's `contact_supervisor`.
+
+Prerequisites (host authority, not flow DSL):
+
+1. Install `pi-intercom` and restart Pi so the interactive orchestrator session
+   is connected to the local broker. Name it, e.g. `/alias orchestrator`.
+2. Allowlist the intercom extension for taskflow children in
+   `~/.pi/agent/settings.json`:
+
+```json
+{
+  "taskflow": {
+    "piChild": {
+      "resourceProfile": "allowlist",
+      "extensions": ["C:/Users/user/.pi/agent/npm/node_modules/pi-intercom/index.ts"]
+    }
+  }
+}
+```
+
+Then opt a phase in:
+
+```jsonc
+{
+  "id": "work",
+  "type": "agent",
+  "agent": "worker",
+  "supervisor": { "target": "orchestrator", "timeoutMs": 1800000 },
+  "session": { "id": "tf-8en-worker", "cleanup": "keep" },
+  "tools": ["read", "grep", "find", "ls", "edit", "write"],
+  "task": "Implement the leaf. If blocked, escalate with contact_supervisor."
+}
+```
+
+Taskflow injects these bridge variables into the child process:
+
+```text
+PI_SUBAGENT_ORCHESTRATOR_TARGET=<supervisor.target>
+PI_SUBAGENT_RUN_ID=<taskflow runId>
+PI_SUBAGENT_CHILD_AGENT=<agent name>
+PI_SUBAGENT_CHILD_INDEX=<phase id>
+PI_INTERCOM_ASK_TIMEOUT_MS=<supervisor.timeoutMs>   # when supplied
+```
+
+`contact_supervisor` is automatically added to an explicit `tools` allowlist and
+a short guidance block is appended to the system prompt. Stale inherited bridge
+variables are cleared for phases without `supervisor`.
+
+Rules:
+
+- The supervisor **must be an interactive TUI session**. A `pi --print` target
+  cannot answer an `ask`; it replies with a canned refusal.
+- `timeoutMs` overrides the child's ask timeout; the broker still uses its own
+  `PI_INTERCOM_ASK_TIMEOUT_MS` at startup. Set both before a long campaign.
+- Pair with `session` (`cleanup: "keep"`) when the answer must continue in the
+  same worker transcript; reviewers stay sessionless.
+- Detached runs are fine: orchestration stays in the foreground TUI, while the
+  worker blocks on the intercom ask inside its own process.
+
+---
+
 ## 9. Environment variables
 
 | Variable | Effect |
@@ -544,6 +612,7 @@ cleaned up with the run.
 | `PI_TASKFLOW_CODEX_BIN` | Override the `codex` binary used to spawn Codex subagents. |
 | `PI_TASKFLOW_CHILD_ENV_ALLOW` | Comma-separated names of extra task-specific environment variables to pass intentionally to Codex/OpenCode/Grok children. Unlisted application secrets are removed. |
 | `PI_TASKFLOW_CLAUDE_BIN` | Override the `claude` binary used to spawn Claude Code subagents. |
+| `PI_INTERCOM_ASK_TIMEOUT_MS` | pi-intercom ask timeout in the child and in the broker process; default 10 minutes. Set alongside `supervisor.timeoutMs` for long waits. |
 | `PI_TASKFLOW_CLAUDE_UNSAFE_BYPASS=1` | Explicitly allow trusted Claude phases requesting known mutating tools to use narrow `--tools` + `bypassPermissions`; unknown names always fail closed. |
 | `PI_TASKFLOW_OPENCODE_BIN` | Override the `opencode` binary used to spawn OpenCode subagents. |
 | `PI_TASKFLOW_OPENCODE_MODEL` | Override the default OpenCode model for OpenCode executor e2e tests (e.g. `opencode/deepseek-v4-flash-free`). |
