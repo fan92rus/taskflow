@@ -979,6 +979,7 @@ test("runAgentTask: supervisor opt-in exposes contact_supervisor bridge", async 
 			`fs.writeFileSync(${JSON.stringify(capture)}, JSON.stringify({\n` +
 			`  tools: val("--tools"),\n` +
 			`  target: process.env.PI_SUBAGENT_ORCHESTRATOR_TARGET ?? null,\n` +
+			`  sessionId: process.env.PI_SUBAGENT_ORCHESTRATOR_SESSION_ID ?? null,\n` +
 			`  childAgent: process.env.PI_SUBAGENT_CHILD_AGENT ?? null,\n` +
 			`  childIndex: process.env.PI_SUBAGENT_CHILD_INDEX ?? null,\n` +
 			`  runId: process.env.PI_SUBAGENT_RUN_ID ?? null,\n` +
@@ -990,10 +991,15 @@ test("runAgentTask: supervisor opt-in exposes contact_supervisor bridge", async 
 	const prevEntry = process.env.PI_TASKFLOW_PI_ENTRY;
 	const prevTarget = process.env.PI_SUBAGENT_ORCHESTRATOR_TARGET;
 	const prevAskTimeout = process.env.PI_INTERCOM_ASK_TIMEOUT_MS;
+	const prevSessionId = process.env.PI_SESSION_ID;
+	const prevIntercomSessionId = process.env.PI_INTERCOM_SESSION_ID;
 	delete process.env.PI_TASKFLOW_PI_BIN;
 	process.env.PI_TASKFLOW_PI_ENTRY = fakePi;
 	process.env.PI_SUBAGENT_ORCHESTRATOR_TARGET = "stale-parent";
+	process.env.PI_SUBAGENT_ORCHESTRATOR_SESSION_ID = "stale-session";
 	process.env.PI_INTERCOM_ASK_TIMEOUT_MS = "999";
+	process.env.PI_SESSION_ID = "lead-session-id";
+	delete process.env.PI_INTERCOM_SESSION_ID;
 	try {
 		const agents: AgentConfig[] = [
 			{ name: "worker", description: "worker", systemPrompt: "", source: "user", filePath: "" },
@@ -1002,6 +1008,7 @@ test("runAgentTask: supervisor opt-in exposes contact_supervisor bridge", async 
 		await runAgentTask(dir, agents, "worker", "off", { runId: "sup-run", phaseId: "work" });
 		const off = JSON.parse(fs.readFileSync(capture, "utf-8"));
 		assert.equal(off.target, null, "stale inherited supervisor target is cleared");
+		assert.equal(off.sessionId, null, "stale inherited supervisor session id is cleared");
 		assert.equal(off.askTimeout, null, "stale inherited ask timeout is cleared");
 		assert.equal(off.tools, null, "no tools whitelist means no forced flags");
 
@@ -1010,10 +1017,11 @@ test("runAgentTask: supervisor opt-in exposes contact_supervisor bridge", async 
 			runId: "sup-run",
 			phaseId: "work",
 			tools: ["read"],
-			supervisor: { target: "orchestrator", timeoutMs: 1800000 },
+			supervisor: { target: "parent", timeoutMs: 1800000 },
 		});
 		const on = JSON.parse(fs.readFileSync(capture, "utf-8"));
-		assert.equal(on.target, "orchestrator");
+		assert.equal(on.target, "lead-session-id", "parent resolves to launching Pi session");
+		assert.equal(on.sessionId, "lead-session-id", "exact session id is authoritative");
 		assert.equal(on.childAgent, "worker");
 		assert.equal(on.childIndex, "work");
 		assert.equal(on.runId, "sup-run");
@@ -1028,6 +1036,10 @@ test("runAgentTask: supervisor opt-in exposes contact_supervisor bridge", async 
 		else process.env.PI_SUBAGENT_ORCHESTRATOR_TARGET = prevTarget;
 		if (prevAskTimeout === undefined) delete process.env.PI_INTERCOM_ASK_TIMEOUT_MS;
 		else process.env.PI_INTERCOM_ASK_TIMEOUT_MS = prevAskTimeout;
+		if (prevSessionId === undefined) delete process.env.PI_SESSION_ID;
+		else process.env.PI_SESSION_ID = prevSessionId;
+		if (prevIntercomSessionId === undefined) delete process.env.PI_INTERCOM_SESSION_ID;
+		else process.env.PI_INTERCOM_SESSION_ID = prevIntercomSessionId;
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });

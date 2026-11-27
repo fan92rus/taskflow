@@ -189,7 +189,7 @@ works in an interactive foreground run and auto-rejects in detached mode).
 
 ```jsonc
 { "id": "work", "type": "agent", "agent": "worker",
-  "supervisor": { "target": "orchestrator", "timeoutMs": 1800000 },
+  "supervisor": { "target": "parent", "timeoutMs": 1800000 },
   "session": { "id": "tf-8en-worker", "cleanup": "keep" },
   "tools": ["read", "grep", "find", "ls", "edit", "write"],
   "task": "Implement the leaf. Escalate with contact_supervisor if blocked." }
@@ -197,13 +197,15 @@ works in an interactive foreground run and auto-rejects in detached mode).
 
 The host must allowlist the intercom extension in `~/.pi/agent/settings.json`
 (see `configuration.md` §8.2) and the supervisor target must be an interactive
-TUI session, e.g. `/alias orchestrator`. Taskflow sets the four
-`PI_SUBAGENT_*` bridge variables plus an optional ask timeout, extends an
-explicit tools allowlist with `contact_supervisor`, and appends a short usage
-guidance block to the system prompt.
+TUI session. With `"target": "parent"` no alias is needed: Taskflow resolves
+the launching Pi session id and passes it as the authoritative
+`PI_SUBAGENT_ORCHESTRATOR_SESSION_ID`. An explicit session name/id is still
+supported. Taskflow sets the `PI_SUBAGENT_*` bridge variables plus an optional
+ask timeout, extends an explicit tools allowlist with `contact_supervisor`, and
+appends a short usage guidance block to the system prompt.
 
 ```text
-orchestrator (interactive TUI)
+launching Pi session (interactive TUI)
   └─ detached taskflow campaign
        └─ worker → contact_supervisor(need_decision) → answer → same turn continues
 ```

@@ -119,7 +119,7 @@ Keys of each object in `phases[]`. Some only apply to specific `type`s.
 | `contextLimit` | all | `8000` | Max characters read **per file** in `context`. See §2.1. |
 | `cache` | all | `run-only` | Per-phase cache policy (`scope`/`ttl`/`fingerprint`). See §8. |
 | `session` | agent-running phases | — | Continue the same persisted subagent session across phases (`key` or `id`, `mode`, `dir`). Pi host only. See §8.1. |
-| `supervisor` | agent-running phases | — | Expose a blocking escalation tool to the child (`target` session, optional `timeoutMs`). Pi host only; requires an allowlisted `pi-intercom` extension. See §8.2. |
+| `supervisor` | agent-running phases | — | Expose a blocking escalation tool to the child (`target` session or `"parent"`, optional `timeoutMs`). Pi host only; requires an allowlisted `pi-intercom` extension. See §8.2. |
 | `final` | all | last phase | Exactly one phase may be `final`; its output is returned. |
 
 > Gate-only control fields (`eval`, `onBlock`, score), the loop/tournament control
@@ -546,7 +546,8 @@ Pi subagent's `contact_supervisor`.
 Prerequisites (host authority, not flow DSL):
 
 1. Install `pi-intercom` and restart Pi so the interactive orchestrator session
-   is connected to the local broker. Name it, e.g. `/alias orchestrator`.
+   is connected to the local broker. Use `"target": "parent"` below and no
+   alias is needed: taskflow routes to the Pi session that launched the run.
 2. Allowlist the intercom extension for taskflow children in
    `~/.pi/agent/settings.json`:
 
@@ -568,7 +569,7 @@ Then opt a phase in:
   "id": "work",
   "type": "agent",
   "agent": "worker",
-  "supervisor": { "target": "orchestrator", "timeoutMs": 1800000 },
+  "supervisor": { "target": "parent", "timeoutMs": 1800000 },
   "session": { "id": "tf-8en-worker", "cleanup": "keep" },
   "tools": ["read", "grep", "find", "ls", "edit", "write"],
   "task": "Implement the leaf. If blocked, escalate with contact_supervisor."
@@ -578,7 +579,8 @@ Then opt a phase in:
 Taskflow injects these bridge variables into the child process:
 
 ```text
-PI_SUBAGENT_ORCHESTRATOR_TARGET=<supervisor.target>
+PI_SUBAGENT_ORCHESTRATOR_TARGET=<supervisor.target>   # or resolved launching session id for "parent"
+PI_SUBAGENT_ORCHESTRATOR_SESSION_ID=<launching Pi session id>  # only for "parent"
 PI_SUBAGENT_RUN_ID=<taskflow runId>
 PI_SUBAGENT_CHILD_AGENT=<agent name>
 PI_SUBAGENT_CHILD_INDEX=<phase id>
@@ -593,6 +595,9 @@ Rules:
 
 - The supervisor **must be an interactive TUI session**. A `pi --print` target
   cannot answer an `ask`; it replies with a canned refusal.
+- `"target": "parent"` uses `PI_INTERCOM_SESSION_ID` / `PI_SESSION_ID` of the
+  launching Pi process. An explicit name/id is still supported for routing to a
+  different connected session; `/alias` is only needed then.
 - `timeoutMs` overrides the child's ask timeout; the broker still uses its own
   `PI_INTERCOM_ASK_TIMEOUT_MS` at startup. Set both before a long campaign.
 - Pair with `session` (`cleanup: "keep"`) when the answer must continue in the

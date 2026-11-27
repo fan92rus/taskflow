@@ -208,7 +208,7 @@ const SupervisorSchema = Type.Object(
 	{
 		target: Type.String({
 			minLength: 1,
-			description: "Interactive supervisor session name/id (Pi intercom target) that receives escalation asks.",
+			description: "Interactive supervisor session name/id that receives escalation asks, or the magic value 'parent' to target the interactive Pi session that launched the run.",
 		}),
 		timeoutMs: Type.Optional(
 			Type.Number({

@@ -57,6 +57,9 @@ export const CTX_TOOL_NAMES = ["ctx_read", "ctx_write", "ctx_report", "ctx_spawn
 /** Tools exposed by pi-intercom when supervisor bridge env is present. */
 export const SUPERVISOR_TOOL_NAMES = ["contact_supervisor"] as const;
 
+/** Magic target meaning “the interactive Pi session that launched this run”. */
+export const PARENT_SUPERVISOR_TARGET = "parent";
+
 /** Guidance appended when a phase opts into supervisor escalation. */
 export const SUPERVISOR_TOOLS_GUIDANCE = [
 	"## Supervisor escalation",
@@ -526,11 +529,23 @@ export async function runAgentTask(
 		// tool when all four bridge vars are present. Clear stale inherited values
 		// first: a taskflow child must never contact a parent it was not assigned.
 		delete childEnv.PI_SUBAGENT_ORCHESTRATOR_TARGET;
+		delete childEnv.PI_SUBAGENT_ORCHESTRATOR_SESSION_ID;
 		delete childEnv.PI_SUBAGENT_CHILD_AGENT;
 		delete childEnv.PI_SUBAGENT_CHILD_INDEX;
 		delete childEnv.PI_INTERCOM_ASK_TIMEOUT_MS;
 		if (opts.supervisor) {
-			childEnv.PI_SUBAGENT_ORCHESTRATOR_TARGET = opts.supervisor.target;
+			// `target: "parent"` resolves to the interactive Pi session that
+			// launched this taskflow run. Passing the exact session id through the
+			// dedicated intercom env makes the route authoritative, so no /alias
+			// or manual session lookup is needed in every new session.
+			const hostSessionId = process.env.PI_INTERCOM_SESSION_ID?.trim() || process.env.PI_SESSION_ID?.trim();
+			const wantsParent = opts.supervisor.target === PARENT_SUPERVISOR_TARGET;
+			childEnv.PI_SUBAGENT_ORCHESTRATOR_TARGET = wantsParent && hostSessionId
+				? hostSessionId
+				: opts.supervisor.target;
+			if (wantsParent && hostSessionId) {
+				childEnv.PI_SUBAGENT_ORCHESTRATOR_SESSION_ID = hostSessionId;
+			}
 			childEnv.PI_SUBAGENT_CHILD_AGENT = agentName;
 			childEnv.PI_SUBAGENT_CHILD_INDEX = opts.phaseId ?? "0";
 			if (opts.supervisor.timeoutMs !== undefined) {
